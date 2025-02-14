@@ -2,12 +2,16 @@ import time
 from app import create_app
 from app.config import load_config
 from app.logger import logger
+from app import Database
 
 # Start timing
 start_time = time.time()
 
 # Load config
 config = load_config()
+
+# Initialize the database before anything else
+db = Database()
 
 # Create Flask app
 app = create_app()

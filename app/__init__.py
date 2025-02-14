@@ -1,5 +1,6 @@
 from flask import Flask
 from pathlib import Path
+from .database import Database
 
 def create_app():
     """Create and configure the Flask app."""
