@@ -12,6 +12,7 @@ config = load_config()
 
 # Initialize the database before anything else
 db = Database()
+db.create_tables()
 
 # Create Flask app
 app = create_app()

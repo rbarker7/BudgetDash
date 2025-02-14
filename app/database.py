@@ -1,6 +1,7 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
+import app.models as models
 from app.logger import logger
 from app.config import db_path 
 
@@ -82,3 +83,16 @@ class Database:
             if db:
                 db.close()
                 logger.debug("Database session closed.")
+
+    def create_tables(self):
+        """
+        Ensures all database tables are created.
+        This should be called once at startup to set up the schema.
+        """
+        try:
+            models.Base.metadata.create_all(bind=self._engine)
+            logger.info("All tables have been created successfully.")
+        except Exception as e:
+            logger.error(f"Failed to create database tables: {e}", exc_info=True)
+            raise
+
