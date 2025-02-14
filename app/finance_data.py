@@ -1,5 +1,7 @@
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
 import app.models as models
+from app.logger import logger  # Import the existing logger
 
 def calculate_net_worth(session: Session, date):
     """
@@ -12,13 +14,19 @@ def calculate_net_worth(session: Session, date):
     Returns:
         tuple: (total_assets, total_liabilities, net_worth) as floats.
     """
-    balances = session.query(models.AccountBalance).filter_by(date=date).all()
-    
-    total_assets = sum(b.balance for b in balances if b.balance > 0)
-    total_liabilities = sum(abs(b.balance) for b in balances if b.balance < 0)
-    net_worth = total_assets - total_liabilities  
+    try:
+        balances = session.query(models.AccountBalance).filter_by(date=date).all()
 
-    return total_assets, total_liabilities, net_worth
+        total_assets = sum(b.balance for b in balances if b.balance > 0)
+        total_liabilities = sum(abs(b.balance) for b in balances if b.balance < 0)
+        net_worth = total_assets - total_liabilities  
+
+        logger.debug(f"Net worth calculated for {date}: Assets={total_assets}, Liabilities={total_liabilities}, Net Worth={net_worth}")
+
+        return total_assets, total_liabilities, net_worth
+    except SQLAlchemyError as e:
+        logger.error(f"Failed to calculate net worth for {date}: {e}", exc_info=True)
+        raise
 
 def add_net_worth_entry(session: Session, date):
     """
@@ -31,18 +39,26 @@ def add_net_worth_entry(session: Session, date):
     Returns:
         NetWorth: The newly created NetWorth entry.
     """
-    total_assets, total_liabilities, net_worth = calculate_net_worth(session, date)
+    try:
+        total_assets, total_liabilities, net_worth = calculate_net_worth(session, date)
 
-    new_entry = models.NetWorth(
-        date=date,
-        total_assets=total_assets,
-        total_liabilities=total_liabilities,
-        net_worth=net_worth
-    )
+        new_entry = models.NetWorth(
+            date=date,
+            total_assets=total_assets,
+            total_liabilities=total_liabilities,
+            net_worth=net_worth
+        )
 
-    session.add(new_entry)
-    session.commit()
-    return new_entry
+        session.add(new_entry)
+        session.commit()
+
+        logger.debug(f"Net worth entry added for {date}")
+
+        return new_entry
+    except SQLAlchemyError as e:
+        logger.error(f"Failed to add net worth entry for {date}: {e}", exc_info=True)
+        session.rollback()
+        raise
 
 def add_account(session: Session, name: str, bank_name: str, account_type: str):
     """
@@ -57,22 +73,18 @@ def add_account(session: Session, name: str, bank_name: str, account_type: str):
     Returns:
         Account: The newly created Account entry.
     """
-    new_account = models.Account(name=name, bank_name=bank_name, account_type=account_type)
-    session.add(new_account)
-    session.commit()
-    return new_account
+    try:
+        new_account = models.Account(name=name, bank_name=bank_name, account_type=account_type)
+        session.add(new_account)
+        session.commit()
 
-def get_accounts(session: Session):
-    """
-    Retrieves all accounts from the database.
+        logger.debug(f"Account '{name}' added (Bank: {bank_name}, Type: {account_type})")
 
-    Parameters:
-        session (Session): Active database session.
-
-    Returns:
-        list: A list of Account objects.
-    """
-    return session.query(models.Account).all()
+        return new_account
+    except SQLAlchemyError as e:
+        logger.error(f"Failed to add account '{name}': {e}", exc_info=True)
+        session.rollback()
+        raise
 
 def delete_account(session: Session, account_id: int):
     """
@@ -85,12 +97,22 @@ def delete_account(session: Session, account_id: int):
     Returns:
         bool: True if the account was deleted, False if not found.
     """
-    account = session.query(models.Account).filter_by(id=account_id).first()
-    if account:
+    try:
+        account = session.query(models.Account).filter_by(id=account_id).first()
+        if not account:
+            logger.debug(f"Attempted to delete non-existent account (ID: {account_id})")
+            return False
+
         session.delete(account)
         session.commit()
+
+        logger.debug(f"Account deleted (ID: {account_id})")
+
         return True
-    return False 
+    except SQLAlchemyError as e:
+        logger.error(f"Failed to delete account (ID: {account_id}): {e}", exc_info=True)
+        session.rollback()
+        raise
 
 def update_balance(session: Session, account_id: int, date, balance: float):
     """
@@ -105,24 +127,18 @@ def update_balance(session: Session, account_id: int, date, balance: float):
     Returns:
         AccountBalance: The newly created balance entry.
     """
-    balance_entry = models.AccountBalance(account_id=account_id, date=date, balance=balance)
-    session.add(balance_entry)
-    session.commit()
-    return balance_entry
+    try:
+        balance_entry = models.AccountBalance(account_id=account_id, date=date, balance=balance)
+        session.add(balance_entry)
+        session.commit()
 
-def get_balance(session: Session, account_id: int, date):
-    """
-    Gets the balance of an account for a specific date.
+        logger.debug(f"Balance updated for Account ID {account_id} on {date}: {balance}")
 
-    Parameters:
-        session (Session): Active database session.
-        account_id (int): The ID of the account.
-        date (date): The date for which to retrieve the balance.
-
-    Returns:
-        AccountBalance: The balance entry if found, else None.
-    """
-    return session.query(models.AccountBalance).filter_by(account_id=account_id, date=date).first()
+        return balance_entry
+    except SQLAlchemyError as e:
+        logger.error(f"Failed to update balance for Account ID {account_id} on {date}: {e}", exc_info=True)
+        session.rollback()
+        raise
 
 def add_transaction(session: Session, account_id: int, date, amount: float, category: str, description: str = None):
     """
@@ -139,37 +155,21 @@ def add_transaction(session: Session, account_id: int, date, amount: float, cate
     Returns:
         Transaction: The newly created transaction entry.
     """
-    new_transaction = models.Transaction(
-        account_id=account_id,
-        date=date,
-        amount=amount,
-        category=category,
-        description=description
-    )
-    session.add(new_transaction)
-    session.commit()
-    return new_transaction
+    try:
+        new_transaction = models.Transaction(
+            account_id=account_id,
+            date=date,
+            amount=amount,
+            category=category,
+            description=description
+        )
+        session.add(new_transaction)
+        session.commit()
 
-def get_transactions(session: Session, account_id: int = None, start_date=None, end_date=None):
-    """
-    Fetches transactions, optionally filtered by account and date range.
+        logger.debug(f"Transaction added: Account ID {account_id}, Date: {date}, Amount: {amount}, Category: {category}")
 
-    Parameters:
-        session (Session): Active database session.
-        account_id (int, optional): The ID of the account to filter by.
-        start_date (date, optional): The start date for filtering transactions.
-        end_date (date, optional): The end date for filtering transactions.
-
-    Returns:
-        list: A list of Transaction objects matching the criteria.
-    """
-    query = session.query(models.Transaction)
-    
-    if account_id:
-        query = query.filter(models.Transaction.account_id == account_id)
-    if start_date:
-        query = query.filter(models.Transaction.date >= start_date)
-    if end_date:
-        query = query.filter(models.Transaction.date <= end_date)
-    
-    return query.all()
+        return new_transaction
+    except SQLAlchemyError as e:
+        logger.error(f"Failed to add transaction for Account ID {account_id} on {date}: {e}", exc_info=True)
+        session.rollback()
+        raise
