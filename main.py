@@ -1,5 +1,5 @@
 import time
-from app import create_app
+from app import DashApp
 from app.config import load_config
 from app.logger import logger
 from app import Database
@@ -14,8 +14,8 @@ config = load_config()
 db = Database()
 db.create_tables()
 
-# Create Flask app
-app = create_app()
+# Initiate the web app
+app = DashApp()
 
 if __name__ == "__main__":
     debug_mode = config.getboolean("flask", "debug")
